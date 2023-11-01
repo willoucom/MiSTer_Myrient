@@ -178,7 +178,7 @@ def main():
                     to_remove.append(local_files_name)
 
             if not found:
-                print(" " + ftp_files_name + " Not found, downloading")
+                print("  " + ftp_files_name + " Not found, downloading")
                 # Connect FTP
                 ftp = connectFTP(myrient_host)
                 ftp.cwd(set["s"])
@@ -194,11 +194,24 @@ def main():
                     # Read file
                     with ZipFile(f, "r") as tmpzip:
                         tmpzip_files = tmpzip.namelist()
+                        if len(tmpzip_files) > 1:
+                            print("   <!> Multiple files detected inside zip, creating a dummy file <!>")
+                            dummyfile = os.path.splitext(ftp_files_name)[0]+".dummy"
+                            if dummyfile not in tmpzip_files:
+                                tmpzip_files.append(dummyfile)
+
                         for tmpzip_files_name in tmpzip_files:
-                            print("  Adding " + tmpzip_files_name)
-                            if tmpzip_files_name in local_files:
-                                print(" > " + tmpzip_files_name + " already exists")
-                                to_remove.append(tmpzip_files_name)
+                            print("   Adding " + tmpzip_files_name)
+                            destination_filename = tmpzip_files_name
+                            # Check if Zip and Content filename match (only when there is only 1 file inside the zip)
+                            if os.path.splitext(ftp_files_name)[0] != os.path.splitext(tmpzip_files_name)[0] and len(tmpzip_files) == 1:
+                                print("   <!> ZIP and Content mismatch <!>")
+                                destination_filename = os.path.splitext(ftp_files_name)[0] + os.path.splitext(tmpzip_files_name)[1]
+                                print("    > Renaming destination file to: "+ destination_filename)
+
+                            if destination_filename in local_files:
+                                print(" > " + destination_filename + " already exists")
+                                to_remove.append(destination_filename)
                             else:
                                 if not "o" in set or ("o" in set and set["o"] is False):
                                     # One zip for the system
@@ -206,12 +219,16 @@ def main():
                                 else:
                                     # in case of split
                                     # Get destination
-                                    letter = destinationLetter(tmpzip_files_name)
+                                    letter = destinationLetter(destination_filename)
                                     zipfile = rompath + "/" + set["z"] + "_" + letter + ".zip"
                                 # Add file to games archive
                                 createZip(zipfile)
-                                tmpfile = tmpzip.read(tmpzip_files_name)
-                                addFileToZip(zipfile, tmpfile, tmpzip_files_name)
+                                if os.path.splitext(tmpzip_files_name)[1] == ".dummy":
+                                    print("    *** Dummy file detected, create an empty file")
+                                    tmpfile = ""
+                                else:
+                                    tmpfile = tmpzip.read(tmpzip_files_name)
+                                addFileToZip(zipfile, tmpfile, destination_filename)
             # Clean local files list
             if to_remove:
                 for remove in to_remove:
