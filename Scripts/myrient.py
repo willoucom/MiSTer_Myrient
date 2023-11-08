@@ -135,6 +135,7 @@ def main():
         exit()
 
     # Main loop
+    options.sort()
     for sett in options:
         if sett in sets:
             set = sets[sett]
