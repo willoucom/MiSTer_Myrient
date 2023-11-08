@@ -156,42 +156,48 @@ def main():
             os.makedirs(rompath, exist_ok=True)
 
         # Get local game list
+        print("Get local game list")
         local_files = getRomlist(rompath, set)
         # Write game list to disk
         writeLocalRomList(rompath, set)
 
         # Connect FTP
+        print("Get remote game list")
         ftp = connectFTP(myrient_host)
         # Change ftp directory
         ftp.cwd(set["s"])
         # Get file list
         ftp_files = ftp.nlst()
         ftp.close()
+        ftp_files = removeExtension(ftp_files)
         # Main loop
-        for ftp_files_name in ftp_files:
-            found = False
-            # List of files to remove from local list
-            to_remove = []
-            ## Look for remote name in local list
-            for local_files_name in local_files:
-                if os.path.splitext(ftp_files_name)[0] == os.path.splitext(local_files_name)[0]:
-                    found = True
-                    to_remove.append(local_files_name)
+        print("Compare remote/local")
+        leftovers,missing = returnNotMatches(local_files, ftp_files)
 
-            if not found:
-                print("  " + ftp_files_name + " Not found, downloading")
-                # Connect FTP
-                ftp = connectFTP(myrient_host)
-                ftp.cwd(set["s"])
+        # Connect FTP
+        ftp = connectFTP(myrient_host)
+        ftp.cwd(set["s"])
+
+        # loop missing games
+        firstchar = " "
+        if len(missing) == 0:
+            print("Nothing to download")
+        else:
+            for ftp_files_name in missing:
+                # progress-like
+                firstchar_n = ftp_files_name[0]
+                if firstchar_n != firstchar:
+                    print(firstchar_n+".")
+                    firstchar = firstchar_n
+
                 # Download file
+                print("  " + ftp_files_name + " Not found, downloading")
                 with tempfile.TemporaryFile() as f:
                     try:
-                        ftp.retrbinary("RETR " + ftp_files_name, f.write)
+                        ftp.retrbinary("RETR " + ftp_files_name+".zip", f.write)
                     except ftplib.all_errors as e:
                         print(str(e))
-                        ftp.close()
                         continue
-                    ftp.close()
                     # Read file
                     with ZipFile(f, "r") as tmpzip:
                         tmpzip_files = tmpzip.namelist()
@@ -205,14 +211,13 @@ def main():
                             print("   Adding " + tmpzip_files_name)
                             destination_filename = tmpzip_files_name
                             # Check if Zip and Content filename match (only when there is only 1 file inside the zip)
-                            if os.path.splitext(ftp_files_name)[0] != os.path.splitext(tmpzip_files_name)[0] and len(tmpzip_files) == 1:
-                                print("   <!> ZIP and Content mismatch <!>")
-                                destination_filename = os.path.splitext(ftp_files_name)[0] + os.path.splitext(tmpzip_files_name)[1]
+                            if ftp_files_name != os.path.splitext(tmpzip_files_name)[0] and len(tmpzip_files) == 1:
+                                print("   <!> ZIP and Content name mismatch <!>")
+                                destination_filename = ftp_files_name + os.path.splitext(tmpzip_files_name)[1]
                                 print("    > Renaming destination file to: "+ destination_filename)
 
                             if destination_filename in local_files:
                                 print(" > " + destination_filename + " already exists")
-                                to_remove.append(destination_filename)
                             else:
                                 if not "o" in set or ("o" in set and set["o"] is False):
                                     # One zip for the system
@@ -230,17 +235,20 @@ def main():
                                 else:
                                     tmpfile = tmpzip.read(tmpzip_files_name)
                                 addFileToZip(zipfile, tmpfile, destination_filename)
-            # Clean local files list
-            if to_remove:
-                for remove in to_remove:
-                    local_files.remove(remove)
+
+        ftp.close()
+
         # Cleaning zip
         # TODO: Rewrite zipfile
         # Print leftovers
-        if len(local_files):
-            print("  Leftovers:")
-            for zip_name in local_files:
+        local_files = getRomlist(rompath, set)
+        leftovers,missing = returnNotMatches(local_files, ftp_files)
+        print("Leftovers:")
+        if len(leftovers):
+            for zip_name in leftovers:
                 print("     " + zip_name)
+        else:
+            print("    NONE")
         # Write leftovers to file
         file = open(rompath + "/leftovers.txt", "w")
         for item in local_files:
@@ -250,8 +258,7 @@ def main():
         local_files = getRomlist(rompath, set)
         # Write game list to disk
         writeLocalRomList(rompath, set)
-        print("* /%s *" % sett)
-        print("---")
+        print("---\n")
 
 
 # Functions
@@ -309,8 +316,9 @@ def getRomlist(rompath, set):
         createZip(zipfile)
         # Open Zip
         zip = ZipFile(zipfile, "r")
-        local_files = zip.namelist()
+        tmp = zip.namelist()
         zip.close()
+        local_files = removeExtension(tmp)
     else:
         # If Split
         for letter in alphabet:
@@ -318,10 +326,17 @@ def getRomlist(rompath, set):
             # Open Zip
             if os.path.isfile(zipfile):
                 zip = ZipFile(zipfile, "r")
-                local_files += zip.namelist()
+                tmp = zip.namelist()
                 zip.close()
+                local_files += removeExtension(tmp)
     local_files.sort()
     return local_files
+
+def removeExtension(list):
+    tmplist = []
+    for item in list:
+        tmplist.append(os.path.splitext(item)[0])
+    return tmplist
 
 def writeLocalRomList(rompath, set):
     """ Write list of games locally """
@@ -332,5 +347,8 @@ def writeLocalRomList(rompath, set):
     for item in local_files:
         file.write(item + "\n")
     file.close()
+
+def returnNotMatches(a, b):
+    return [[x for x in a if x not in b], [x for x in b if x not in a]]
 
 main()
