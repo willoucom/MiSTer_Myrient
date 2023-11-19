@@ -105,6 +105,8 @@ sets = {
     # Computers
     # C64
     "C64": {"f": "C64", "s": "/No-Intro/Commodore - Commodore 64", "o": True},
+    # MSX
+    "MSX1": {"f": "MSX1", "s": "/No-Intro/Microsoft - MSX", "o": True},
 }
 
 alphabet = [
