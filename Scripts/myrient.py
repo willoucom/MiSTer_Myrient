@@ -101,6 +101,10 @@ sets = {
     "VC4000": {"f": "VC4000", "s": "/No-Intro/Interton - VC 4000"},
     # GCE
     "Vectrex": {"f": "VECTREX", "s": "/No-Intro/GCE - Vectrex"},
+
+    # Computers
+    # C64
+    "C64": {"f": "C64", "s": "/No-Intro/Commodore - Commodore 64", "o": True},
 }
 
 alphabet = [
