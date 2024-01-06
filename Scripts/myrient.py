@@ -101,6 +101,9 @@ sets = {
     "VC4000": {"f": "VC4000", "s": "/No-Intro/Interton - VC 4000"},
     # GCE
     "Vectrex": {"f": "VECTREX", "s": "/No-Intro/GCE - Vectrex"},
+    # SNK
+    "NGP": {"f":"NGP", "s": "/No-Intro/SNK - NeoGeo Pocket/"},
+    "NGC": {"f":"NGP", "s": "/No-Intro/SNK - NeoGeo Pocket Color/", "z": "Color"},
 
     # Computers
     # C64
