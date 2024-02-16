@@ -22,19 +22,13 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import ftplib
 import os
 import subprocess
 import re
 import sys
-import time
-import tempfile
-
-# import zipfile
 
 from zipfile import ZipFile
-
-myrient_host = "ftp.myrient.erista.me"
+from Myrient import Myrient
 
 # Stucture of folders/remote
 # f = Local Folder
@@ -127,7 +121,6 @@ alphabet = [
 # Can be configured with environment variable MYRIENT_DIR
 games_dir = os.environ.get("MYRIENT_DIR", "/media/fat/games/")
 
-
 def main():
     if len(sys.argv) >= 2:
         options = sys.argv
@@ -148,17 +141,22 @@ def main():
         print("Or use 'ALL' to download everything")
         exit()
 
+    myrient = Myrient()
+
     # Main loop
     options.sort()
-    for sett in options:
-        if sett in sets:
-            set = sets[sett]
+    for system in options:
+        if system in sets:
+            set = sets[system]
         else:
-            exit("Set %s not found" % sett)
+            exit("Set %s not found" % system)
 
-        print("* %s *" % sett)
+        print("* %s *" % system)
 
         local_files = []
+        ftp_files = []
+        missing = []
+
         # Zipfile name
         if not "z" in set:
             set["z"] = "games"
@@ -167,33 +165,23 @@ def main():
             set["o"] = False
 
         # Check destination folder
-        rompath = games_dir + set["f"]
+        rompath = games_dir +'/'+ set["f"]
         if not os.path.isdir(rompath):
             print(rompath + " not found, creating")
             os.makedirs(rompath, exist_ok=True)
 
         # Get local game list
-        print("Get local game list")
-        local_files, _ = getRomlist(rompath, set["z"])
+        print("Get local game list: "+ rompath)
+        local_files, _ = myrient.getRomlist(rompath)
 
-        # Connect FTP
-        print("Get remote game list")
-        ftp = connectFTP(myrient_host)
-        # Change ftp directory
-        ftp.cwd(set["s"])
-        # Get file list
-        ftp_files = ftp.nlst()
-        ftp.close()
+        # Get remote
+        print("Get remote files from: "+ set['s'])
+        ftp_files = myrient.listForSystem(set['s'])
 
         print("Compare remote/local")
         missing = getMissingFiles(local_files, ftp_files)
 
         # Main loop
-
-        # Connect FTP
-        ftp = connectFTP(myrient_host)
-        ftp.cwd(set["s"])
-
         # loop missing games
         firstchar = " "
         if len(missing) == 0:
@@ -207,59 +195,22 @@ def main():
                     print(firstchar_n + ".")
                     firstchar = firstchar_n
 
-                # Download file
-                with tempfile.TemporaryFile() as f:
-                    try:
-                        ftp.retrbinary("RETR " + ftp_files_name, f.write)
-                    except ftplib.all_errors as e:
-                        print(ftp_files_name)
-                        print(str(e))
-                        continue
-                    # Read file
-                    with ZipFile(f, "r") as tmpzip:
-                        tmpzip_files = tmpzip.namelist()
+                print("  " + ftp_files_name)
+                if not "o" in set or ("o" in set and set["o"] is False):
+                    # One zip for the system
+                    zipfile = rompath + "/" + set["z"] + ".zip"
+                else:
+                    # in case of split
+                    # Get destination
+                    letter = destinationLetter(ftp_files_name)
+                    zipfile = rompath + "/" + set["z"] + "_" + letter + ".zip"
 
-                        for tmpzip_files_name in tmpzip_files:
-                            destination_filename = tmpzip_files_name
-                            # Check if Zip and Content filename match (only when there is only 1 file inside the zip)
-                            if (len(tmpzip_files) == 1):
-                                destination_filename = (
-                                    os.path.splitext(ftp_files_name)[0]
-                                    + os.path.splitext(tmpzip_files_name)[1]
-                                )
-                            print("  " + destination_filename)
-                            if not "o" in set or ("o" in set and set["o"] is False):
-                                # One zip for the system
-                                zipfile = rompath + "/" + set["z"] + ".zip"
-                            else:
-                                # in case of split
-                                # Get destination
-                                letter = destinationLetter(destination_filename)
-                                zipfile = (
-                                    rompath + "/" + set["z"] + "_" + letter + ".zip"
-                                )
-                            # Add file to games archive
-                            createZip(zipfile)
-                            if len(tmpzip_files) > 1:
-                                tmpfile = ""
-                                addFileToZip(zipfile, tmpfile, destination_filename+".dummy")
-                                addFileToZip(zipfile, tmpfile, os.path.splitext(ftp_files_name)[0] + ".dummy")
-                            if destination_filename.endswith(".dummy"):
-                                tmpfile = ""
-                            else:
-                                tmpfile = tmpzip.read(tmpzip_files_name)
-                            addFileToZip(zipfile, tmpfile, destination_filename)
+                # Get the file
+                myrient.getFile(set['s'], ftp_files_name, zipfile)
 
-        ftp.close()
-
-        todelete = {}
-        # Check destination
-        print("Check rom destination")
-        todelete = checkRomDestination(rompath, set["z"], set["o"], todelete)
-
-        # TODO: Rewrite zipfile
         # Print leftovers
-        _, local_files = getRomlist(rompath, set["z"])
+        todelete = {}
+        _, local_files = myrient.getRomlist(rompath)
         print("Fetch leftovers")
         todelete = getLeftoverFiles(local_files, ftp_files, todelete)
 
@@ -267,25 +218,14 @@ def main():
         print("Clean zips")
         deleteFromZip(todelete) 
 
+        local_files.clear()
+        ftp_files.clear()
+        missing.clear()
+        todelete.clear()
         print("---\n")
 
 
 # Functions
-
-
-def connectFTP(server):
-    """Connect to FTP server"""
-    ftp = ftplib.FTP(myrient_host)
-    ftp.login()
-    return ftp
-
-
-def createZip(name):
-    """Create a zipfile"""
-    if not os.path.isfile(name):
-        with ZipFile(name, "w") as file:
-            pass
-
 
 def destinationLetter(name):
     """Get folder for the game based on the first letter or a keyword"""
@@ -316,43 +256,6 @@ def destinationLetter(name):
         return letter
     else:
         return "#"
-
-
-def addFileToZip(zipfile: str, content: bytes, name: str):
-    """Add file to games archive"""
-    zip = ZipFile(zipfile, "r")
-    list = zip.namelist()
-    zip.close()
-    if name not in list:
-        zip = ZipFile(zipfile, "a")
-        zip.writestr(name, content)
-        zip.close()
-
-
-def getRomlist(rompath, setname):
-    """Get list of roms"""
-    files = {}
-    local_files = []
-    # Single file
-    zipfile = rompath + "/" + setname + ".zip"
-    if os.path.isfile(zipfile):
-        zip = ZipFile(zipfile, "r")
-        tmp = zip.namelist()
-        zip.close()
-        local_files = tmp
-        files[zipfile] = tmp
-    # Splited
-    for letter in alphabet:
-        zipfile = rompath + "/" + setname + "_" + letter + ".zip"
-        # Open Zip
-        if os.path.isfile(zipfile):
-            zip = ZipFile(zipfile, "r")
-            tmp = zip.namelist()
-            zip.close()
-            local_files += tmp
-            files[zipfile] = tmp
-    local_files.sort()
-    return local_files, files
 
 def checkRomDestination(rompath, setname, splitted, todelete):
     if splitted:
@@ -393,18 +296,19 @@ def checkRomDestination(rompath, setname, splitted, todelete):
 
 def deleteFromZip(list):
     for zipfile in list:
-        print("Cleaning: "+zipfile)
-        cmd = ["zip", "-d", zipfile] + list[zipfile]
-        try:
-            subprocess.run(cmd)
-        except subprocess.CalledProcessError as e:
-            print(e)
-        with ZipFile(zipfile) as zip:
-            content = zip.namelist()
-            zip.close()
-        if len(content) == 0:
-            print("removing empty "+zipfile)
-            os.remove(zipfile)
+        if os.path.splitext(zipfile)[1] == '.zip':
+            print("Cleaning: "+zipfile)
+            cmd = ["zip", "-d", zipfile] + list[zipfile]
+            try:
+                subprocess.run(cmd)
+            except subprocess.CalledProcessError as e:
+                print(e)
+            with ZipFile(zipfile) as zip:
+                content = zip.namelist()
+                zip.close()
+            if len(content) == 0:
+                print("removing empty "+zipfile)
+                os.remove(zipfile)
 
 def removeExtension(list):
     tmplist = []
@@ -435,13 +339,11 @@ def getMissingFiles(local, remote):
 def getLeftoverFiles(local, remote, todelete):
     """Get list of leftovers (absent from remote)"""
     remote = removeExtension(remote)
-    # todelete = {}
     for filename in local:
         for local_file in local[filename]:
-            if local_file + ".dummy" in local[filename] or local_file.endswith(".dummy"):
+            if os.path.splitext(local_file)[0] + ".dummy" in local[filename] or local_file.endswith(".dummy") or os.path.splitext(local_file)[0] + ".keep" in local[filename] or local_file.endswith(".keep"):
                 continue
             if os.path.splitext(local_file)[0] not in remote:
-                #or local_file.endswith(".dummy"):
                 if not filename in todelete:
                     todelete[filename] = []
                 if not local_file in todelete[filename]:
